@@ -2,22 +2,19 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <!-- Méta-tags magiques pour l'effet "Vraie App iOS" -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SummerTrip">
-  <link rel="apple-touch-icon" href="https://via.placeholder.com/192/FFB6C1/FFFFFF?text=💖"> <!-- Remplace par l'URL de ton icône -->
+  <link rel="apple-touch-icon" href="https://via.placeholder.com/192/FFB6C1/FFFFFF?text=💖">
   <link rel="manifest" href="manifest.json">
   
   <title>Summer Trip 🌴</title>
   
-  <!-- Importation des modules Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-    // Ta configuration Firebase qui fonctionne ✨
     const firebaseConfig = {
       apiKey: "AIzaSyBMSX0_KYX8EXtVBNGGb3Z687TcsQrD7WY",
       authDomain: "ramadan-7ef9d.firebaseapp.com",
@@ -28,29 +25,48 @@
       measurementId: "G-8HW90MFPKK"
     };
 
-    // Initialisation
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // Liste des filles 
-    // Liste des filles 
-    const users = ["Moi", "Samia", "Enora", "Anaïs"];;
+    // Uniquement vous 3 !
+    const users = ["Samia", "Enora", "Anaïs"];
     
-    // --- LOGIQUE DE L'APP ---
     const expensesCol = collection(db, "expenses");
     let allExpenses = [];
+    let currentUser = localStorage.getItem('summerTripUser');
 
-    // Écouter les données en temps réel
+    window.onload = () => {
+      if (!currentUser) {
+        document.getElementById('loginScreen').style.display = 'flex';
+      } else {
+        document.getElementById('welcomeMessage').innerText = `Hello ${currentUser} ✨`;
+        document.getElementById('payer').value = currentUser;
+      }
+    };
+
+    window.login = function(name) {
+      currentUser = name;
+      localStorage.setItem('summerTripUser', name);
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('welcomeMessage').innerText = `Hello ${currentUser} ✨`;
+      document.getElementById('payer').value = currentUser;
+      updateUI();
+    };
+
+    window.logout = function() {
+      localStorage.removeItem('summerTripUser');
+      location.reload();
+    };
+
     const q = query(expensesCol, orderBy("timestamp", "desc"));
     onSnapshot(q, (snapshot) => {
       allExpenses = [];
       snapshot.forEach((doc) => {
         allExpenses.push({ id: doc.id, ...doc.data() });
       });
-      updateUI();
+      if(currentUser) updateUI();
     });
 
-    // Ajouter une dépense
     window.addExpense = async function(e) {
       e.preventDefault();
       const payer = document.getElementById("payer").value;
@@ -58,6 +74,10 @@
       const description = document.getElementById("description").value;
 
       if (!payer || !amount || !description) return alert("Remplis tout bestie !");
+
+      const btn = document.getElementById("submitBtn");
+      btn.innerText = "Ajout en cours... ⏳";
+      btn.style.opacity = "0.7";
 
       await addDoc(expensesCol, {
         payer: payer,
@@ -67,10 +87,12 @@
       });
 
       document.getElementById("expenseForm").reset();
+      document.getElementById("payer").value = currentUser; 
+      btn.innerText = "Valider";
+      btn.style.opacity = "1";
       switchTab('dashboard');
     };
 
-    // Mettre à jour l'affichage et les calculs
     function updateUI() {
       const totalBudget = allExpenses.reduce((acc, curr) => acc + curr.amount, 0);
       document.getElementById("totalBudget").innerText = totalBudget.toFixed(2) + " €";
@@ -80,7 +102,9 @@
         <div class="card expense-card">
           <div class="expense-info">
             <strong>${ex.description}</strong>
-            <span class="payer-badge">Payé par ${ex.payer}</span>
+            <span class="payer-badge" style="background: ${ex.payer === currentUser ? 'var(--primary)' : 'var(--bg)'}; color: ${ex.payer === currentUser ? 'white' : 'var(--primary)'}">
+              Payé par ${ex.payer === currentUser ? 'Toi' : ex.payer}
+            </span>
           </div>
           <div class="expense-amount">${ex.amount.toFixed(2)} €</div>
         </div>
@@ -96,12 +120,8 @@
       let balances = {};
       users.forEach(u => balances[u] = 0);
 
-      allExpenses.forEach(ex => {
-        balances[ex.payer] += ex.amount;
-      });
-      users.forEach(u => {
-        balances[u] -= perPerson;
-      });
+      allExpenses.forEach(ex => { balances[ex.payer] += ex.amount; });
+      users.forEach(u => { balances[u] -= perPerson; });
 
       let debtors = [];
       let creditors = [];
@@ -117,7 +137,12 @@
         let creditor = creditors[j];
         let amount = Math.min(debtor.amount, creditor.amount);
 
-        debtsHTML += `<div class="card debt-card">💸 <strong>${debtor.user}</strong> doit <strong>${amount.toFixed(2)} €</strong> à <strong>${creditor.user}</strong></div>`;
+        let isMe = (debtor.user === currentUser || creditor.user === currentUser);
+        let cardStyle = isMe ? "border: 2px solid var(--primary); background: #FFF0F3;" : "";
+        
+        let text = `<strong>${debtor.user === currentUser ? 'Tu' : debtor.user}</strong> doit <strong>${amount.toFixed(2)} €</strong> à <strong>${creditor.user === currentUser ? 'Toi' : creditor.user}</strong>`;
+
+        debtsHTML += `<div class="card debt-card" style="${cardStyle}">💸 ${text}</div>`;
 
         debtor.amount -= amount;
         creditor.amount -= amount;
@@ -129,7 +154,6 @@
       document.getElementById("debtsList").innerHTML = debtsHTML || "<p style='text-align:center;'>Tout le monde est à jour ! ✨</p>";
     }
 
-    // Gestion des onglets
     window.switchTab = function(tabId) {
       document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
@@ -139,11 +163,10 @@
   </script>
 
   <style>
-    /* VARIABLES THEME GIRLY SUMMER */
     :root {
-      --bg: #FFF5F7; /* Rose très pâle */
-      --primary: #FF7B9C; /* Rose chaud */
-      --accent: #FFC0CB; /* Pink */
+      --bg: #FFF5F7;
+      --primary: #FF7B9C;
+      --accent: #FFC0CB;
       --text: #4A4A4A;
       --card-bg: #FFFFFF;
       --safe-bottom: env(safe-area-inset-bottom, 20px);
@@ -161,92 +184,80 @@
       padding-bottom: calc(80px + var(--safe-bottom));
     }
 
-    header {
-      text-align: center;
+    .login-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(135deg, #FFF5F7, #FFC0CB);
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
       padding: 20px;
-      font-size: 24px;
-      font-weight: 800;
-      color: var(--primary);
     }
+    .login-overlay h1 { color: var(--primary); font-size: 32px; margin-bottom: 10px; }
+    .login-overlay p { color: var(--text); margin-bottom: 30px; font-weight: 500; }
+    .user-btn {
+      background: white; border: 2px solid var(--primary); color: var(--primary);
+      width: 80%; padding: 15px; margin-bottom: 15px;
+      border-radius: 20px; font-size: 18px; font-weight: bold;
+      box-shadow: 0 4px 10px rgba(255, 123, 156, 0.2);
+    }
+    .user-btn:active { background: var(--primary); color: white; }
+
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 20px; font-size: 24px; font-weight: 800; color: var(--primary);
+    }
+    .logout-btn { font-size: 12px; background: var(--bg); color: var(--primary); padding: 5px 10px; border-radius: 10px; border: none; cursor: pointer; }
 
     .container { padding: 0 20px; }
     .tab-content { display: none; }
     .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-    .card {
-      background: var(--card-bg);
-      border-radius: 20px;
-      padding: 20px;
-      margin-bottom: 15px;
-      box-shadow: 0 4px 15px rgba(255, 123, 156, 0.1);
-    }
-
-    .budget-hero {
-      text-align: center;
-      background: linear-gradient(135deg, #FF7B9C, #FFB2B2);
-      color: white;
-    }
+    .card { background: var(--card-bg); border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(255, 123, 156, 0.1); }
+    
+    .budget-hero { text-align: center; background: linear-gradient(135deg, #FF7B9C, #FFB2B2); color: white; }
     .budget-hero h2 { margin: 0; font-size: 36px; }
     .budget-hero p { margin: 5px 0 0; opacity: 0.9; }
 
     .expense-card { display: flex; justify-content: space-between; align-items: center; }
     .expense-info strong { display: block; font-size: 16px; margin-bottom: 5px; }
-    .payer-badge { background: var(--bg); color: var(--primary); padding: 4px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
+    .payer-badge { padding: 4px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
     .expense-amount { font-size: 18px; font-weight: 800; color: var(--primary); }
-
     .debt-card { text-align: center; font-size: 16px; }
 
-    /* FORMULAIRE */
-    input, select, button {
-      width: 100%;
-      padding: 15px;
-      margin-bottom: 15px;
-      border: none;
-      border-radius: 15px;
-      background: var(--bg);
-      font-size: 16px;
-      color: var(--text);
-      outline: none;
-    }
-    button {
-      background: var(--primary);
-      color: white;
-      font-weight: bold;
-      box-shadow: 0 4px 15px rgba(255, 123, 156, 0.3);
-      transition: transform 0.1s;
-    }
-    button:active { transform: scale(0.98); }
+    input, select, button.action-btn { width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 15px; background: var(--bg); font-size: 16px; color: var(--text); outline: none; }
+    button.action-btn { background: var(--primary); color: white; font-weight: bold; box-shadow: 0 4px 15px rgba(255, 123, 156, 0.3); transition: transform 0.1s; }
+    button.action-btn:active { transform: scale(0.98); }
 
-    /* BARRE DE NAVIGATION IOS (BOTTOM) */
     .bottom-nav {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      background: rgba(255, 255, 255, 0.9);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      display: flex;
-      justify-content: space-around;
-      padding: 15px 0 calc(15px + var(--safe-bottom));
-      border-top: 1px solid rgba(0,0,0,0.05);
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      display: flex; justify-content: space-around;
+      padding: 15px 0 calc(15px + var(--safe-bottom)); border-top: 1px solid rgba(0,0,0,0.05);
     }
-    .nav-item {
-      text-align: center;
-      color: #A0A0A0;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
+    .nav-item { text-align: center; color: #A0A0A0; font-size: 12px; font-weight: 600; cursor: pointer; }
     .nav-item.active { color: var(--primary); }
     .nav-icon { font-size: 24px; display: block; margin-bottom: 4px; }
   </style>
 </head>
 <body>
 
-  <header>🌴 Summer Trip</header>
+  <div id="loginScreen" class="login-overlay">
+    <h1>Summer Trip 🌴</h1>
+    <p>Qui es-tu ?</p>
+    <button class="user-btn" onclick="login('Samia')">Samia</button>
+    <button class="user-btn" onclick="login('Enora')">Enora</button>
+    <button class="user-btn" onclick="login('Anaïs')">Anaïs</button>
+  </div>
+
+  <header>
+    <span id="welcomeMessage">Summer Trip 🌴</span>
+    <button class="logout-btn" onclick="logout()">Changer profil</button>
+  </header>
 
   <div class="container">
-    <!-- ONGLET 1 : RÉSUMÉ -->
     <div id="dashboard" class="tab-content active">
       <div class="card budget-hero">
         <p>Budget Global</p>
@@ -257,45 +268,37 @@
       <div id="historyList">Chargement...</div>
     </div>
 
-    <!-- ONGLET 2 : AJOUTER -->
     <div id="add" class="tab-content">
       <div class="card">
         <h3 style="margin-top:0; color: var(--primary);">Nouvelle Dépense 💸</h3>
         <form id="expenseForm" onsubmit="addExpense(event)">
-         <select id="payer" required>
-            <option value="" disabled selected>Qui a payé ?</option>
-            <option value="Moi">Moi</option>
+          <select id="payer" required>
             <option value="Samia">Samia</option>
             <option value="Enora">Enora</option>
             <option value="Anaïs">Anaïs</option>
           </select>
           <input type="text" id="description" placeholder="Ex: Plein d'essence, Cocktail..." required>
           <input type="number" id="amount" placeholder="Montant (€)" step="0.01" required>
-          <button type="submit">Valider</button>
+          <button type="submit" id="submitBtn" class="action-btn">Valider</button>
         </form>
       </div>
     </div>
 
-    <!-- ONGLET 3 : QUI DOIT QUOI -->
     <div id="balances" class="tab-content">
       <h3 style="color: var(--primary); text-align:center;">On fait les comptes ⚖️</h3>
       <div id="debtsList"></div>
     </div>
   </div>
 
-  <!-- NAVIGATION -->
   <nav class="bottom-nav">
     <div class="nav-item active" onclick="switchTab('dashboard')">
-      <span class="nav-icon">📊</span>
-      Résumé
+      <span class="nav-icon">📊</span> Résumé
     </div>
     <div class="nav-item" onclick="switchTab('add')">
-      <span class="nav-icon">✨</span>
-      Ajouter
+      <span class="nav-icon">✨</span> Ajouter
     </div>
     <div class="nav-item" onclick="switchTab('balances')">
-      <span class="nav-icon">💰</span>
-      Comptes
+      <span class="nav-icon">💰</span> Comptes
     </div>
   </nav>
 
