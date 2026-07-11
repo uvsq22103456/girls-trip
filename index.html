@@ -1,0 +1,123 @@
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // Ta configuration Firebase qui fonctionne ✨
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMSX0_KYX8EXtVBNGGb3Z687TcsQrD7WY",
+      authDomain: "ramadan-7ef9d.firebaseapp.com",
+      projectId: "ramadan-7ef9d",
+      storageBucket: "ramadan-7ef9d.firebasestorage.app",
+      messagingSenderId: "1054040681487",
+      appId: "1:1054040681487:web:ecb8ee77b3d8205e78877a",
+      measurementId: "G-8HW90MFPKK"
+    };
+
+    // Initialisation
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Liste des filles 
+    const users = ["Moi", "Léa", "Chloé", "Sarah"];
+    
+    // --- LOGIQUE DE L'APP ---
+    const expensesCol = collection(db, "expenses");
+    let allExpenses = [];
+
+    // Écouter les données en temps réel
+    const q = query(expensesCol, orderBy("timestamp", "desc"));
+    onSnapshot(q, (snapshot) => {
+      allExpenses = [];
+      snapshot.forEach((doc) => {
+        allExpenses.push({ id: doc.id, ...doc.data() });
+      });
+      updateUI();
+    });
+
+    // Ajouter une dépense
+    window.addExpense = async function(e) {
+      e.preventDefault();
+      const payer = document.getElementById("payer").value;
+      const amount = parseFloat(document.getElementById("amount").value);
+      const description = document.getElementById("description").value;
+
+      if (!payer || !amount || !description) return alert("Remplis tout bestie !");
+
+      await addDoc(expensesCol, {
+        payer: payer,
+        amount: amount,
+        description: description,
+        timestamp: new Date()
+      });
+
+      document.getElementById("expenseForm").reset();
+      switchTab('dashboard');
+    };
+
+    // Mettre à jour l'affichage et les calculs
+    function updateUI() {
+      const totalBudget = allExpenses.reduce((acc, curr) => acc + curr.amount, 0);
+      document.getElementById("totalBudget").innerText = totalBudget.toFixed(2) + " €";
+
+      const historyDiv = document.getElementById("historyList");
+      historyDiv.innerHTML = allExpenses.map(ex => `
+        <div class="card expense-card">
+          <div class="expense-info">
+            <strong>${ex.description}</strong>
+            <span class="payer-badge">Payé par ${ex.payer}</span>
+          </div>
+          <div class="expense-amount">${ex.amount.toFixed(2)} €</div>
+        </div>
+      `).join('');
+
+      calculateBalances(totalBudget);
+    }
+
+    function calculateBalances(total) {
+      const perPerson = total / users.length;
+      document.getElementById("perPerson").innerText = perPerson.toFixed(2) + " €";
+
+      let balances = {};
+      users.forEach(u => balances[u] = 0);
+
+      allExpenses.forEach(ex => {
+        balances[ex.payer] += ex.amount;
+      });
+      users.forEach(u => {
+        balances[u] -= perPerson;
+      });
+
+      let debtors = [];
+      let creditors = [];
+      for (const [user, balance] of Object.entries(balances)) {
+        if (balance < -0.01) debtors.push({ user, amount: Math.abs(balance) });
+        else if (balance > 0.01) creditors.push({ user, amount: balance });
+      }
+
+      let debtsHTML = "";
+      let i = 0, j = 0;
+      while (i < debtors.length && j < creditors.length) {
+        let debtor = debtors[i];
+        let creditor = creditors[j];
+        let amount = Math.min(debtor.amount, creditor.amount);
+
+        debtsHTML += `<div class="card debt-card">💸 <strong>${debtor.user}</strong> doit <strong>${amount.toFixed(2)} €</strong> à <strong>${creditor.user}</strong></div>`;
+
+        debtor.amount -= amount;
+        creditor.amount -= amount;
+
+        if (debtor.amount < 0.01) i++;
+        if (creditor.amount < 0.01) j++;
+      }
+
+      document.getElementById("debtsList").innerHTML = debtsHTML || "<p style='text-align:center;'>Tout le monde est à jour ! ✨</p>";
+    }
+
+    // Gestion des onglets
+    window.switchTab = function(tabId) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(t => t.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      document.querySelector(`[onclick="switchTab('${tabId}')"]`).classList.add('active');
+    };
+  </script>
