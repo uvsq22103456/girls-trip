@@ -13,7 +13,6 @@
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    // Ajout de updateDoc pour pouvoir cocher la liste de courses
     import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, updateDoc, doc as firestoreDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -31,7 +30,6 @@
 
     const users = ["Samia", "Enora", "Anaïs"];
     
-    // Les 3 collections de la base de données
     const expensesCol = collection(db, "expenses");
     const ideasCol = collection(db, "ideas");
     const shoppingCol = collection(db, "shopping");
@@ -64,31 +62,26 @@
       location.reload();
     };
 
-    // --- ECOUTEURS FIREBASE ---
-
-    // 1. Dépenses
+    // Écouteurs Firestore
     onSnapshot(query(expensesCol, orderBy("timestamp", "desc")), (snapshot) => {
       allExpenses = [];
       snapshot.forEach((d) => allExpenses.push({ id: d.id, ...d.data() }));
       if(currentUser) updateUI();
     });
 
-    // 2. Bons Plans
     onSnapshot(query(ideasCol, orderBy("timestamp", "desc")), (snapshot) => {
       allIdeas = [];
       snapshot.forEach((d) => allIdeas.push({ id: d.id, ...d.data() }));
       if(currentUser) updateIdeasUI();
     });
 
-    // 3. Liste de courses
     onSnapshot(query(shoppingCol, orderBy("timestamp", "asc")), (snapshot) => {
       allShopping = [];
       snapshot.forEach((d) => allShopping.push({ id: d.id, ...d.data() }));
       if(currentUser) updateShoppingUI();
     });
 
-
-    // --- FONCTIONS DEPENSES ---
+    // Fonctions Dépenses
     window.addExpense = async function(e) {
       e.preventDefault();
       const payer = document.getElementById("payer").value;
@@ -115,15 +108,13 @@
       }
     };
 
-
-    // --- FONCTIONS BONS PLANS ---
+    // Fonctions Bons Plans
     window.addIdea = async function(e) {
       e.preventDefault();
       const title = document.getElementById("ideaTitle").value;
       const price = document.getElementById("ideaPrice").value;
       let link = document.getElementById("ideaLink").value;
 
-      // S'assurer que le lien s'ouvre bien s'il n'y a pas "http"
       if(link && !link.startsWith("http")) link = "https://" + link;
 
       const btn = document.getElementById("submitIdeaBtn");
@@ -141,8 +132,7 @@
       }
     };
 
-
-    // --- FONCTIONS LISTE DE COURSES ---
+    // Fonctions Courses
     window.addShoppingItem = async function(e) {
       e.preventDefault();
       const item = document.getElementById("shoppingItem").value;
@@ -160,9 +150,7 @@
       await deleteDoc(firestoreDoc(db, "shopping", id));
     };
 
-
-    // --- MISES A JOUR INTERFACE ---
-
+    // Mises à jour Interface
     function updateUI() {
       const totalBudget = allExpenses.reduce((acc, curr) => acc + curr.amount, 0);
       document.getElementById("totalBudget").innerText = totalBudget.toFixed(2) + " €";
@@ -218,7 +206,7 @@
       shoppingDiv.innerHTML = allShopping.map(shop => `
         <div class="shopping-item ${shop.done ? 'done' : ''}">
           <label class="shopping-label">
-            <input type="checkbox" ${shop.done ? 'checked' : ''} onchange="toggleShoppingItem('${shop.id}', ${shop.done})">
+            <input type="checkbox" class="shopping-checkbox" ${shop.done ? 'checked' : ''} onchange="toggleShoppingItem('${shop.id}', ${shop.done})">
             <span>${shop.item}</span>
           </label>
           <button class="delete-btn-small" onclick="deleteShoppingItem('${shop.id}')">❌</button>
@@ -292,6 +280,7 @@
       padding-top: var(--safe-top); padding-bottom: calc(90px + var(--safe-bottom));
     }
 
+    /* OVERLAYS ET HEADER */
     .login-overlay {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: linear-gradient(135deg, #FFF5F7, #FFC0CB);
@@ -309,6 +298,7 @@
     header { display: flex; justify-content: space-between; align-items: center; padding: 20px; font-size: 24px; font-weight: 800; color: var(--primary); }
     .logout-btn { font-size: 12px; background: var(--bg); color: var(--primary); padding: 5px 10px; border-radius: 10px; border: none; cursor: pointer; }
 
+    /* CONTENUS ET CARTES */
     .container { padding: 0 20px; }
     .tab-content { display: none; }
     .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
@@ -342,16 +332,35 @@
     
     .shopping-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
     .shopping-item:last-child { border-bottom: none; }
-    .shopping-label { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; font-size: 16px; }
+    .shopping-label { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; font-size: 16px; word-break: break-word; }
     .shopping-item.done span { text-decoration: line-through; color: #aaa; }
-    .shopping-form-group { display: flex; gap: 10px; }
-    .shopping-form-group input { margin-bottom: 0; flex: 1; }
-    .shopping-form-group button { width: auto; margin-bottom: 0; padding: 0 20px; }
-
-    input, select, button.action-btn { width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 15px; background: var(--bg); font-size: 16px; color: var(--text); outline: none; }
-    button.action-btn { background: var(--primary); color: white; font-weight: bold; box-shadow: 0 4px 15px rgba(255, 123, 156, 0.3); transition: transform 0.1s; cursor: pointer; }
+    
+    /* CORRECTION DU BUG DES INPUTS */
+    input[type="text"], input[type="number"], input[type="url"], select { 
+      width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 15px; 
+      background: var(--bg); font-size: 16px; color: var(--text); outline: none; 
+    }
+    
+    /* BOUTONS D'ACTION */
+    button.action-btn { 
+      width: 100%; padding: 15px; border: none; border-radius: 15px; background: var(--primary); 
+      color: white; font-weight: bold; box-shadow: 0 4px 15px rgba(255, 123, 156, 0.3); 
+      transition: transform 0.1s; cursor: pointer; font-size: 16px;
+    }
     button.action-btn:active { transform: scale(0.98); }
 
+    /* CORRECTION DE LA LISTE DE COURSES (FLEX & CHECKBOX) */
+    .shopping-form-group { display: flex; gap: 10px; align-items: stretch; margin-bottom: 15px; }
+    .shopping-form-group input { margin-bottom: 0; flex: 1; }
+    .shopping-form-group button.action-btn { width: 60px; margin-bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    
+    .shopping-checkbox {
+      width: 22px; height: 22px; margin: 0;
+      accent-color: var(--primary); /* La couleur rose quand c'est coché */
+      cursor: pointer;
+    }
+
+    /* NAVIGATION */
     .bottom-nav {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
@@ -380,7 +389,6 @@
 
   <div class="container">
     
-    <!-- ONGLET 1 : RESUME -->
     <div id="dashboard" class="tab-content active">
       <div class="card budget-hero">
         <p>Budget Global</p>
@@ -391,7 +399,6 @@
       <div id="historyList">Chargement...</div>
     </div>
 
-    <!-- ONGLET 2 : AJOUTER DEPENSE -->
     <div id="add" class="tab-content">
       <div class="card">
         <h3 style="margin-top:0; color: var(--primary);">Nouvelle Dépense 💸</h3>
@@ -408,13 +415,11 @@
       </div>
     </div>
 
-    <!-- ONGLET 3 : COMPTES -->
     <div id="balances" class="tab-content">
       <h3 style="color: var(--primary); text-align:center;">On fait les comptes ⚖️</h3>
       <div id="debtsList"></div>
     </div>
 
-    <!-- ONGLET 4 : PLANNING & COURSES -->
     <div id="planning" class="tab-content">
       
       <h3 class="section-title">Bons Plans & Activités 📍</h3>
@@ -437,10 +442,10 @@
       <h3 class="section-title">Liste de courses 🛒</h3>
       <div class="card">
         <form id="shoppingForm" onsubmit="addShoppingItem(event)" class="shopping-form-group">
-          <input type="text" id="shoppingItem" placeholder="Ex: Bouteilles d'eau, Chips..." required>
+          <input type="text" id="shoppingItem" placeholder="Bouteilles d'eau, Chips..." required>
           <button type="submit" class="action-btn">➕</button>
         </form>
-        <div id="shoppingList" style="margin-top: 15px;"></div>
+        <div id="shoppingList"></div>
       </div>
 
     </div>
