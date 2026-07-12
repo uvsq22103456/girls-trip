@@ -29,14 +29,17 @@
     const db = getFirestore(app);
 
     const users = ["Samia", "Enora", "Anaïs"];
+    const daysOfWeek = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
     
     const expensesCol = collection(db, "expenses");
     const ideasCol = collection(db, "ideas");
     const shoppingCol = collection(db, "shopping");
+    const scheduleCol = collection(db, "schedule");
 
     let allExpenses = [];
     let allIdeas = [];
     let allShopping = [];
+    let allSchedule = [];
     let currentUser = localStorage.getItem('summerTripUser');
 
     window.onload = () => {
@@ -81,6 +84,12 @@
       if(currentUser) updateShoppingUI();
     });
 
+    onSnapshot(query(scheduleCol), (snapshot) => {
+      allSchedule = [];
+      snapshot.forEach((d) => allSchedule.push({ id: d.id, ...d.data() }));
+      if(currentUser) updateScheduleUI();
+    });
+
     // Gestion du bascule "Remboursement"
     window.toggleReimbursement = function() {
       const isReimb = document.getElementById("isReimbursement").checked;
@@ -103,7 +112,6 @@
       if (isReimb && payer === receiver) return alert("Tu ne peux pas te rembourser toi-même bestie ! 🤡");
       if (!payer || !amount || (!isReimb && !description)) return alert("Remplis tout !");
 
-      // Si c'est un remboursement et pas de description, on met un texte par défaut
       if (isReimb && !description) description = "Remboursement";
 
       const btn = document.getElementById("submitBtn");
@@ -114,7 +122,6 @@
 
       await addDoc(expensesCol, docData);
 
-      // Reset du formulaire
       document.getElementById("expenseForm").reset();
       document.getElementById("payer").value = currentUser; 
       document.getElementById("receiver").style.display = "none";
@@ -126,6 +133,31 @@
       if(confirm("Tu veux vraiment supprimer cette ligne ? 🗑️")) {
         try { await deleteDoc(firestoreDoc(db, "expenses", id)); } 
         catch (error) { alert("Erreur : " + error.message); }
+      }
+    };
+
+    // Fonctions Planning Journalier
+    window.addScheduleItem = async function(e) {
+      e.preventDefault();
+      const day = document.getElementById("scheduleDay").value;
+      const time = document.getElementById("scheduleTime").value;
+      const activity = document.getElementById("scheduleActivity").value;
+      let link = document.getElementById("scheduleLink").value;
+
+      if(link && !link.startsWith("http")) link = "https://" + link;
+
+      const btn = document.getElementById("submitScheduleBtn");
+      btn.innerText = "Ajout... ⏳"; btn.style.opacity = "0.7";
+
+      await addDoc(scheduleCol, { day, time, activity, link, addedBy: currentUser, timestamp: new Date() });
+
+      document.getElementById("scheduleForm").reset();
+      btn.innerText = "Ajouter au programme 📅"; btn.style.opacity = "1";
+    };
+
+    window.deleteScheduleItem = async function(id) {
+      if(confirm("Supprimer cette activité du programme ? 🗑️")) {
+        await deleteDoc(firestoreDoc(db, "schedule", id));
       }
     };
 
@@ -173,7 +205,6 @@
 
     // Mises à jour Interface
     function updateUI() {
-      // On calcule le budget total UNIQUEMENT avec les vraies dépenses (pas les remboursements)
       let totalBudget = 0;
       allExpenses.forEach(curr => {
         if (!curr.receiver) totalBudget += curr.amount;
@@ -185,7 +216,6 @@
       historyDiv.innerHTML = allExpenses.map(ex => {
         const isReimb = !!ex.receiver;
         
-        // Styles différents selon si c'est une dépense ou un remboursement
         const badgeStyle = isReimb 
           ? `background: var(--accent); color: #fff;` 
           : `background: ${ex.payer === currentUser ? 'var(--primary)' : 'var(--bg)'}; color: ${ex.payer === currentUser ? 'white' : 'var(--primary)'}`;
@@ -211,6 +241,54 @@
       }).join('');
 
       calculateBalances(totalBudget);
+    }
+
+    function updateScheduleUI() {
+      const scheduleDiv = document.getElementById("scheduleList");
+      if(allSchedule.length === 0) {
+        scheduleDiv.innerHTML = "<p style='text-align:center; color:#A0A0A0;'>Pas encore de programme prévu.</p>";
+        return;
+      }
+
+      // Tri par jour (selon l'ordre de la semaine) puis par heure
+      const sorted = [...allSchedule].sort((a, b) => {
+        const dayDiff = daysOfWeek.indexOf(a.day) - daysOfWeek.indexOf(b.day);
+        if (dayDiff !== 0) return dayDiff;
+        return a.time.localeCompare(b.time);
+      });
+
+      // Grouper par jour
+      const grouped = {};
+      sorted.forEach(item => {
+        if (!grouped[item.day]) grouped[item.day] = [];
+        grouped[item.day].push(item);
+      });
+
+      let html = "";
+      for (const day of daysOfWeek) {
+        if (grouped[day]) {
+          html += `
+            <div class="day-group">
+              <h4 class="day-title">${day}</h4>
+          `;
+          grouped[day].forEach(item => {
+            html += `
+              <div class="card schedule-card">
+                <div class="schedule-time">${item.time}</div>
+                <div class="schedule-content">
+                  <div class="schedule-header">
+                    <strong>${item.activity}</strong>
+                    <button class="delete-btn-small" onclick="deleteScheduleItem('${item.id}')">❌</button>
+                  </div>
+                  ${item.link ? `<a href="${item.link}" target="_blank" class="schedule-link">Voir le lien 🔗</a>` : ''}
+                </div>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+      }
+      scheduleDiv.innerHTML = html;
     }
 
     function updateIdeasUI() {
@@ -260,17 +338,15 @@
       let balances = {};
       users.forEach(u => balances[u] = 0);
 
-      // Calcul des balances incluant les remboursements
       allExpenses.forEach(ex => { 
         if (ex.receiver) {
-          balances[ex.payer] += ex.amount; // Celui qui rembourse gagne du crédit
-          balances[ex.receiver] -= ex.amount; // Celui qui est remboursé perd du crédit
+          balances[ex.payer] += ex.amount;
+          balances[ex.receiver] -= ex.amount;
         } else {
-          balances[ex.payer] += ex.amount; // Dépense classique
+          balances[ex.payer] += ex.amount;
         }
       });
       
-      // On soustrait la part moyenne de chaque personne
       users.forEach(u => { balances[u] -= perPerson; });
 
       let debtors = [];
@@ -373,19 +449,30 @@
     /* STYLES PLANNING & COURSES */
     .section-title { color: var(--primary); font-size: 20px; margin: 25px 0 15px; border-bottom: 2px solid var(--accent); display: inline-block; padding-bottom: 5px; }
     
+    /* Planning Journalier */
+    .day-group { margin-bottom: 25px; }
+    .day-title { background: var(--primary); color: white; padding: 6px 15px; border-radius: 12px; display: inline-block; margin: 0 0 10px 0; font-size: 16px; box-shadow: 0 2px 8px rgba(255, 123, 156, 0.3); }
+    .schedule-card { display: flex; gap: 15px; padding: 15px; margin-bottom: 10px; align-items: center; }
+    .schedule-time { font-weight: 900; color: var(--primary); font-size: 18px; min-width: 55px; text-align: center; background: var(--bg); padding: 8px; border-radius: 10px; }
+    .schedule-content { flex: 1; }
+    .schedule-header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; }
+    .schedule-link { display: inline-block; margin-top: 8px; font-size: 13px; color: white; background: var(--accent); padding: 4px 10px; border-radius: 8px; text-decoration: none; font-weight: bold; }
+
+    /* Idées / Bons plans */
     .idea-card { padding: 15px; }
     .idea-header { display: flex; justify-content: space-between; align-items: center; font-size: 18px; margin-bottom: 5px; }
     .idea-details { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 10px; color: #777; }
     .price-tag { background: #FFF0F3; color: var(--primary); padding: 3px 8px; border-radius: 8px; font-weight: bold; }
     .idea-link { display: inline-block; width: 100%; text-align: center; background: var(--bg); color: var(--primary); padding: 10px; border-radius: 10px; text-decoration: none; font-weight: bold; font-size: 14px; }
     
+    /* Courses */
     .shopping-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; }
     .shopping-item:last-child { border-bottom: none; }
     .shopping-label { display: flex; align-items: center; gap: 10px; flex: 1; cursor: pointer; font-size: 16px; word-break: break-word; }
     .shopping-item.done span { text-decoration: line-through; color: #aaa; }
     
     /* STYLE GÉNÉRAL DES INPUTS */
-    input[type="text"], input[type="number"], input[type="url"], select { 
+    input[type="text"], input[type="number"], input[type="url"], input[type="time"], select { 
       width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 15px; 
       background: var(--bg); font-size: 16px; color: var(--text); outline: none; 
     }
@@ -429,10 +516,15 @@
       background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       display: flex; justify-content: space-around;
       padding: 10px 0 calc(10px + var(--safe-bottom)); border-top: 1px solid rgba(0,0,0,0.05);
+      z-index: 100;
     }
     .nav-item { flex: 1; text-align: center; color: #A0A0A0; font-size: 11px; font-weight: 600; cursor: pointer; }
     .nav-item.active { color: var(--primary); }
     .nav-icon { font-size: 22px; display: block; margin-bottom: 4px; }
+
+    /* Ligne pour diviser le formulaire de planning */
+    .form-row { display: flex; gap: 10px; }
+    .form-row > * { flex: 1; }
   </style>
 </head>
 <body>
@@ -473,7 +565,6 @@
             <option value="Anaïs">Anaïs</option>
           </select>
 
-          <!-- NOUVEAU: Le petit bouton de remboursement -->
           <label class="checkbox-container">
             <input type="checkbox" id="isReimbursement" onchange="toggleReimbursement()">
             <span>C'est un remboursement 🤝</span>
@@ -485,7 +576,6 @@
             <option value="Enora">Enora</option>
             <option value="Anaïs">Anaïs</option>
           </select>
-          <!-- FIN NOUVEAU -->
 
           <input type="text" id="description" placeholder="Ex: Plein d'essence, Cocktail..." required>
           <input type="number" id="amount" placeholder="Montant (€)" step="0.01" required>
@@ -501,8 +591,33 @@
     </div>
 
     <div id="planning" class="tab-content">
+
+      <!-- NOUVEAU : PLANNING JOURNALIER -->
+      <h3 class="section-title">Programme au jour le jour 📅</h3>
+      <div class="card">
+        <form id="scheduleForm" onsubmit="addScheduleItem(event)">
+          <div class="form-row">
+            <select id="scheduleDay" required>
+              <option value="" disabled selected>Quel jour ?</option>
+              <option value="Lundi">Lundi</option>
+              <option value="Mardi">Mardi</option>
+              <option value="Mercredi">Mercredi</option>
+              <option value="Jeudi">Jeudi</option>
+              <option value="Vendredi">Vendredi</option>
+              <option value="Samedi">Samedi</option>
+              <option value="Dimanche">Dimanche</option>
+            </select>
+            <input type="time" id="scheduleTime" required>
+          </div>
+          <input type="text" id="scheduleActivity" placeholder="Activité (ex: Plage, Boat party...)" required>
+          <input type="url" id="scheduleLink" placeholder="Lien d'adresse ou résa (optionnel)">
+          <button type="submit" id="submitScheduleBtn" class="action-btn">Ajouter au programme 📅</button>
+        </form>
+      </div>
+      <div id="scheduleList"></div>
       
-      <h3 class="section-title">Bons Plans & Activités 📍</h3>
+      <!-- BOITE A IDÉES -->
+      <h3 class="section-title">Boîte à Idées 💡</h3>
       <div class="card">
         <form id="ideaForm" onsubmit="addIdea(event)">
           <input type="text" id="ideaTitle" placeholder="Ex: Resto vue mer, Jet Ski..." required>
@@ -519,6 +634,7 @@
       </div>
       <div id="ideasList"></div>
 
+      <!-- COURSES -->
       <h3 class="section-title">Liste de courses 🛒</h3>
       <div class="card">
         <form id="shoppingForm" onsubmit="addShoppingItem(event)" class="shopping-form-group">
