@@ -81,28 +81,49 @@
       if(currentUser) updateShoppingUI();
     });
 
-    // Fonctions Dépenses
+    // Gestion du bascule "Remboursement"
+    window.toggleReimbursement = function() {
+      const isReimb = document.getElementById("isReimbursement").checked;
+      document.getElementById("receiver").style.display = isReimb ? "block" : "none";
+      document.getElementById("description").placeholder = isReimb ? "Motif (optionnel)" : "Ex: Plein d'essence, Cocktail...";
+      document.getElementById("description").required = !isReimb;
+    };
+
+    // Fonctions Dépenses & Remboursements
     window.addExpense = async function(e) {
       e.preventDefault();
       const payer = document.getElementById("payer").value;
       const amount = parseFloat(document.getElementById("amount").value);
-      const description = document.getElementById("description").value;
+      let description = document.getElementById("description").value;
+      
+      const isReimb = document.getElementById("isReimbursement").checked;
+      const receiver = document.getElementById("receiver").value;
 
-      if (!payer || !amount || !description) return alert("Remplis tout bestie !");
+      if (isReimb && !receiver) return alert("Choisis à qui tu rembourses ! 🎯");
+      if (isReimb && payer === receiver) return alert("Tu ne peux pas te rembourser toi-même bestie ! 🤡");
+      if (!payer || !amount || (!isReimb && !description)) return alert("Remplis tout !");
+
+      // Si c'est un remboursement et pas de description, on met un texte par défaut
+      if (isReimb && !description) description = "Remboursement";
 
       const btn = document.getElementById("submitBtn");
       btn.innerText = "Ajout... ⏳"; btn.style.opacity = "0.7";
 
-      await addDoc(expensesCol, { payer, amount, description, timestamp: new Date() });
+      const docData = { payer, amount, description, timestamp: new Date() };
+      if (isReimb) docData.receiver = receiver;
 
+      await addDoc(expensesCol, docData);
+
+      // Reset du formulaire
       document.getElementById("expenseForm").reset();
       document.getElementById("payer").value = currentUser; 
+      document.getElementById("receiver").style.display = "none";
       btn.innerText = "Valider"; btn.style.opacity = "1";
       switchTab('dashboard');
     };
 
     window.deleteExpense = async function(id) {
-      if(confirm("Tu veux vraiment supprimer cette dépense ? 🗑️")) {
+      if(confirm("Tu veux vraiment supprimer cette ligne ? 🗑️")) {
         try { await deleteDoc(firestoreDoc(db, "expenses", id)); } 
         catch (error) { alert("Erreur : " + error.message); }
       }
@@ -152,24 +173,42 @@
 
     // Mises à jour Interface
     function updateUI() {
-      const totalBudget = allExpenses.reduce((acc, curr) => acc + curr.amount, 0);
+      // On calcule le budget total UNIQUEMENT avec les vraies dépenses (pas les remboursements)
+      let totalBudget = 0;
+      allExpenses.forEach(curr => {
+        if (!curr.receiver) totalBudget += curr.amount;
+      });
+      
       document.getElementById("totalBudget").innerText = totalBudget.toFixed(2) + " €";
 
       const historyDiv = document.getElementById("historyList");
-      historyDiv.innerHTML = allExpenses.map(ex => `
-        <div class="card expense-card">
-          <div class="expense-info">
-            <strong>${ex.description}</strong>
-            <span class="payer-badge" style="background: ${ex.payer === currentUser ? 'var(--primary)' : 'var(--bg)'}; color: ${ex.payer === currentUser ? 'white' : 'var(--primary)'}">
-              Payé par ${ex.payer === currentUser ? 'Toi' : ex.payer}
-            </span>
+      historyDiv.innerHTML = allExpenses.map(ex => {
+        const isReimb = !!ex.receiver;
+        
+        // Styles différents selon si c'est une dépense ou un remboursement
+        const badgeStyle = isReimb 
+          ? `background: var(--accent); color: #fff;` 
+          : `background: ${ex.payer === currentUser ? 'var(--primary)' : 'var(--bg)'}; color: ${ex.payer === currentUser ? 'white' : 'var(--primary)'}`;
+        
+        const badgeText = isReimb 
+          ? `Rembourse ${ex.receiver === currentUser ? 'Toi' : ex.receiver}`
+          : `Payé par ${ex.payer === currentUser ? 'Toi' : ex.payer}`;
+
+        return `
+          <div class="card expense-card" style="${isReimb ? 'border-left: 4px solid var(--accent);' : ''}">
+            <div class="expense-info">
+              <strong>${isReimb ? '🤝 ' : ''}${ex.description}</strong>
+              <span class="payer-badge" style="${badgeStyle}">
+                ${isReimb && ex.payer === currentUser ? 'Tu' : (isReimb ? ex.payer : '')} ${badgeText}
+              </span>
+            </div>
+            <div class="expense-actions">
+              <div class="expense-amount">${ex.amount.toFixed(2)} €</div>
+              <button class="delete-btn" onclick="deleteExpense('${ex.id}')">🗑️</button>
+            </div>
           </div>
-          <div class="expense-actions">
-            <div class="expense-amount">${ex.amount.toFixed(2)} €</div>
-            <button class="delete-btn" onclick="deleteExpense('${ex.id}')">🗑️</button>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       calculateBalances(totalBudget);
     }
@@ -221,7 +260,17 @@
       let balances = {};
       users.forEach(u => balances[u] = 0);
 
-      allExpenses.forEach(ex => { balances[ex.payer] += ex.amount; });
+      // Calcul des balances incluant les remboursements
+      allExpenses.forEach(ex => { 
+        if (ex.receiver) {
+          balances[ex.payer] += ex.amount; // Celui qui rembourse gagne du crédit
+          balances[ex.receiver] -= ex.amount; // Celui qui est remboursé perd du crédit
+        } else {
+          balances[ex.payer] += ex.amount; // Dépense classique
+        }
+      });
+      
+      // On soustrait la part moyenne de chaque personne
       users.forEach(u => { balances[u] -= perPerson; });
 
       let debtors = [];
@@ -310,7 +359,7 @@
     .budget-hero h2 { margin: 0; font-size: 36px; }
     .budget-hero p { margin: 5px 0 0; opacity: 0.9; }
 
-    .expense-card { display: flex; justify-content: space-between; align-items: center; }
+    .expense-card { display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
     .expense-info strong { display: block; font-size: 16px; margin-bottom: 5px; }
     .payer-badge { padding: 4px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; }
     
@@ -340,6 +389,13 @@
       width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 15px; 
       background: var(--bg); font-size: 16px; color: var(--text); outline: none; 
     }
+
+    .checkbox-container {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 15px; padding: 5px;
+    }
+    .checkbox-container input[type="checkbox"] {
+      width: 22px; height: 22px; margin: 0; accent-color: var(--primary); cursor: pointer;
+    }
     
     /* BOUTON D'ACTION GÉNÉRAL */
     button.action-btn { 
@@ -349,28 +405,16 @@
     }
     button.action-btn:active { transform: scale(0.98); }
 
-    /* --- LE FIX EST ICI : LA ZONE DE COURSES BÉTONNÉE --- */
+    /* LA ZONE DE COURSES BÉTONNÉE */
     .shopping-form-group { 
-      display: flex; 
-      gap: 10px; 
-      align-items: center; 
-      margin-bottom: 15px; 
-      width: 100%;
+      display: flex; gap: 10px; align-items: center; margin-bottom: 15px; width: 100%;
     }
     .shopping-form-group input { 
-      flex: 1; /* Force l'input à prendre tout l'espace libre */
-      width: auto !important; /* Annule la règle des 100% */
-      margin-bottom: 0 !important; 
+      flex: 1; width: auto !important; margin-bottom: 0 !important; 
     }
     .shopping-form-group button.action-btn { 
-      flex: 0 0 50px; /* Un carré fixe de 50px, ni plus ni moins */
-      height: 50px; 
-      padding: 0; 
-      margin-bottom: 0; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      font-size: 24px; 
+      flex: 0 0 50px; height: 50px; padding: 0; margin-bottom: 0; 
+      display: flex; align-items: center; justify-content: center; font-size: 24px; 
     }
     
     .shopping-checkbox {
@@ -422,13 +466,30 @@
       <div class="card">
         <h3 style="margin-top:0; color: var(--primary);">Nouvelle Dépense 💸</h3>
         <form id="expenseForm" onsubmit="addExpense(event)">
+          
           <select id="payer" required>
             <option value="Samia">Samia</option>
             <option value="Enora">Enora</option>
             <option value="Anaïs">Anaïs</option>
           </select>
+
+          <!-- NOUVEAU: Le petit bouton de remboursement -->
+          <label class="checkbox-container">
+            <input type="checkbox" id="isReimbursement" onchange="toggleReimbursement()">
+            <span>C'est un remboursement 🤝</span>
+          </label>
+
+          <select id="receiver" style="display:none; margin-bottom: 15px;">
+            <option value="" disabled selected>À qui ?</option>
+            <option value="Samia">Samia</option>
+            <option value="Enora">Enora</option>
+            <option value="Anaïs">Anaïs</option>
+          </select>
+          <!-- FIN NOUVEAU -->
+
           <input type="text" id="description" placeholder="Ex: Plein d'essence, Cocktail..." required>
           <input type="number" id="amount" placeholder="Montant (€)" step="0.01" required>
+          
           <button type="submit" id="submitBtn" class="action-btn">Valider</button>
         </form>
       </div>
