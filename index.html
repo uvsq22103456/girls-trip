@@ -29,7 +29,7 @@
     const db = getFirestore(app);
 
     const users = ["Samia", "Enora", "Anaïs"];
-    const daysOfWeek = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+    window.daysOfWeek = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
     
     const expensesCol = collection(db, "expenses");
     const ideasCol = collection(db, "ideas");
@@ -41,6 +41,7 @@
     let allShopping = [];
     let allSchedule = [];
     let currentUser = localStorage.getItem('summerTripUser');
+    window.currentDayIndex = 0; // On commence par Lundi (0)
 
     window.onload = () => {
       if (!currentUser) {
@@ -49,6 +50,7 @@
         document.getElementById('welcomeMessage').innerText = `Hello ${currentUser} ✨`;
         document.getElementById('payer').value = currentUser;
       }
+      document.getElementById('currentDayLabel').innerText = window.daysOfWeek[window.currentDayIndex];
     };
 
     window.login = function(name) {
@@ -153,12 +155,25 @@
 
       document.getElementById("scheduleForm").reset();
       btn.innerText = "Ajouter au programme 📅"; btn.style.opacity = "1";
+      
+      // On bascule la vue du calendrier sur le jour qu'on vient d'ajouter
+      window.currentDayIndex = window.daysOfWeek.indexOf(day);
+      document.getElementById('currentDayLabel').innerText = window.daysOfWeek[window.currentDayIndex];
+      updateScheduleUI();
     };
 
     window.deleteScheduleItem = async function(id) {
       if(confirm("Supprimer cette activité du programme ? 🗑️")) {
         await deleteDoc(firestoreDoc(db, "schedule", id));
       }
+    };
+
+    window.changeDay = function(step) {
+      window.currentDayIndex += step;
+      if(window.currentDayIndex < 0) window.currentDayIndex = 6;
+      if(window.currentDayIndex > 6) window.currentDayIndex = 0;
+      document.getElementById('currentDayLabel').innerText = window.daysOfWeek[window.currentDayIndex];
+      updateScheduleUI();
     };
 
     // Fonctions Bons Plans
@@ -245,50 +260,36 @@
 
     function updateScheduleUI() {
       const scheduleDiv = document.getElementById("scheduleList");
-      if(allSchedule.length === 0) {
-        scheduleDiv.innerHTML = "<p style='text-align:center; color:#A0A0A0;'>Pas encore de programme prévu.</p>";
+      const currentDayString = window.daysOfWeek[window.currentDayIndex];
+      
+      // On ne garde que les activités du jour séléctionné
+      const dayEvents = allSchedule.filter(item => item.day === currentDayString);
+      
+      // On les trie par heure
+      dayEvents.sort((a, b) => a.time.localeCompare(b.time));
+
+      if(dayEvents.length === 0) {
+        scheduleDiv.innerHTML = `
+          <div style="padding: 40px 20px; text-align: center; color: #A0A0A0;">
+            <div style="font-size: 40px; margin-bottom: 10px;">🏖️</div>
+            <p>Rien de prévu ce jour-là !</p>
+          </div>
+        `;
         return;
       }
 
-      // Tri par jour (selon l'ordre de la semaine) puis par heure
-      const sorted = [...allSchedule].sort((a, b) => {
-        const dayDiff = daysOfWeek.indexOf(a.day) - daysOfWeek.indexOf(b.day);
-        if (dayDiff !== 0) return dayDiff;
-        return a.time.localeCompare(b.time);
-      });
-
-      // Grouper par jour
-      const grouped = {};
-      sorted.forEach(item => {
-        if (!grouped[item.day]) grouped[item.day] = [];
-        grouped[item.day].push(item);
-      });
-
-      let html = "";
-      for (const day of daysOfWeek) {
-        if (grouped[day]) {
-          html += `
-            <div class="day-group">
-              <h4 class="day-title">${day}</h4>
-          `;
-          grouped[day].forEach(item => {
-            html += `
-              <div class="card schedule-card">
-                <div class="schedule-time">${item.time}</div>
-                <div class="schedule-content">
-                  <div class="schedule-header">
-                    <strong>${item.activity}</strong>
-                    <button class="delete-btn-small" onclick="deleteScheduleItem('${item.id}')">❌</button>
-                  </div>
-                  ${item.link ? `<a href="${item.link}" target="_blank" class="schedule-link">Voir le lien 🔗</a>` : ''}
-                </div>
-              </div>
-            `;
-          });
-          html += `</div>`;
-        }
-      }
-      scheduleDiv.innerHTML = html;
+      scheduleDiv.innerHTML = dayEvents.map(item => `
+        <div class="schedule-card">
+          <div class="schedule-time">${item.time}</div>
+          <div class="schedule-content">
+            <div class="schedule-header">
+              <strong>${item.activity}</strong>
+              <button class="delete-btn-small" onclick="deleteScheduleItem('${item.id}')">❌</button>
+            </div>
+            ${item.link ? `<a href="${item.link}" target="_blank" class="schedule-link">Voir le lien 🔗</a>` : ''}
+          </div>
+        </div>
+      `).join('');
     }
 
     function updateIdeasUI() {
@@ -449,11 +450,17 @@
     /* STYLES PLANNING & COURSES */
     .section-title { color: var(--primary); font-size: 20px; margin: 25px 0 15px; border-bottom: 2px solid var(--accent); display: inline-block; padding-bottom: 5px; }
     
-    /* Planning Journalier */
-    .day-group { margin-bottom: 25px; }
-    .day-title { background: var(--primary); color: white; padding: 6px 15px; border-radius: 12px; display: inline-block; margin: 0 0 10px 0; font-size: 16px; box-shadow: 0 2px 8px rgba(255, 123, 156, 0.3); }
-    .schedule-card { display: flex; gap: 15px; padding: 15px; margin-bottom: 10px; align-items: center; }
-    .schedule-time { font-weight: 900; color: var(--primary); font-size: 18px; min-width: 55px; text-align: center; background: var(--bg); padding: 8px; border-radius: 10px; }
+    /* Le Calendrier Façon App */
+    .calendar-container { padding: 0; overflow: hidden; background: var(--card-bg); border-radius: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(255, 123, 156, 0.1); }
+    .calendar-nav { display: flex; justify-content: space-between; align-items: center; background: var(--primary); color: white; padding: 15px 20px; }
+    .cal-day { font-size: 20px; font-weight: 800; }
+    .cal-btn { background: rgba(255,255,255,0.2); border: none; color: white; font-size: 18px; width: 35px; height: 35px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+    .cal-btn:active { background: rgba(255,255,255,0.5); transform: scale(0.9); }
+    
+    #scheduleList { padding: 15px; min-height: 120px; background: #FAFAFA; }
+    .schedule-card { display: flex; gap: 15px; padding: 15px; margin-bottom: 10px; align-items: center; background: white; border-radius: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+    .schedule-card:last-child { margin-bottom: 0; }
+    .schedule-time { font-weight: 900; color: var(--primary); font-size: 18px; min-width: 55px; text-align: center; background: #FFF0F3; padding: 8px; border-radius: 10px; }
     .schedule-content { flex: 1; }
     .schedule-header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; }
     .schedule-link { display: inline-block; margin-top: 8px; font-size: 13px; color: white; background: var(--accent); padding: 4px 10px; border-radius: 8px; text-decoration: none; font-weight: bold; }
@@ -592,9 +599,23 @@
 
     <div id="planning" class="tab-content">
 
-      <!-- NOUVEAU : PLANNING JOURNALIER -->
       <h3 class="section-title">Programme au jour le jour 📅</h3>
-      <div class="card">
+      
+      <!-- LE NOUVEAU CALENDRIER -->
+      <div class="calendar-container">
+        <div class="calendar-nav">
+          <button type="button" class="cal-btn" onclick="changeDay(-1)">❮</button>
+          <span id="currentDayLabel" class="cal-day">Lundi</span>
+          <button type="button" class="cal-btn" onclick="changeDay(1)">❯</button>
+        </div>
+        <div id="scheduleList">
+          <!-- Les activités apparaîtront ici -->
+        </div>
+      </div>
+
+      <!-- FORMULAIRE POUR AJOUTER UNE ACTIVITÉ -->
+      <div class="card" style="margin-top: 15px;">
+        <h4 style="margin-top: 0; color: var(--primary);">Ajouter une activité</h4>
         <form id="scheduleForm" onsubmit="addScheduleItem(event)">
           <div class="form-row">
             <select id="scheduleDay" required>
@@ -614,7 +635,6 @@
           <button type="submit" id="submitScheduleBtn" class="action-btn">Ajouter au programme 📅</button>
         </form>
       </div>
-      <div id="scheduleList"></div>
       
       <!-- BOITE A IDÉES -->
       <h3 class="section-title">Boîte à Idées 💡</h3>
