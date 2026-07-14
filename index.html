@@ -43,15 +43,23 @@
     let currentUser = localStorage.getItem('summerTripUser');
     window.currentDayIndex = 0; // On commence par Lundi (0)
 
-    window.onload = () => {
+    function initApp() {
       if (!currentUser) {
         document.getElementById('loginScreen').style.display = 'flex';
       } else {
         document.getElementById('welcomeMessage').innerText = `Hello ${currentUser} ✨`;
         document.getElementById('payer').value = currentUser;
       }
-      document.getElementById('currentDayLabel').innerText = window.daysOfWeek[window.currentDayIndex];
-    };
+      const dayLabel = document.getElementById('currentDayLabel');
+      if (dayLabel) dayLabel.innerText = window.daysOfWeek[window.currentDayIndex];
+    }
+
+    // Lancement ultra-fiable sans attendre le chargement de la fenêtre
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initApp);
+    } else {
+      initApp();
+    }
 
     window.login = function(name) {
       currentUser = name;
@@ -151,15 +159,18 @@
       const btn = document.getElementById("submitScheduleBtn");
       btn.innerText = "Ajout... ⏳"; btn.style.opacity = "0.7";
 
-      await addDoc(scheduleCol, { day, time, activity, link, addedBy: currentUser, timestamp: new Date() });
+      await addDoc(scheduleCol, { day, time, activity, link, done: false, addedBy: currentUser, timestamp: new Date() });
 
       document.getElementById("scheduleForm").reset();
       btn.innerText = "Ajouter au programme 📅"; btn.style.opacity = "1";
       
-      // On bascule la vue du calendrier sur le jour qu'on vient d'ajouter
       window.currentDayIndex = window.daysOfWeek.indexOf(day);
       document.getElementById('currentDayLabel').innerText = window.daysOfWeek[window.currentDayIndex];
       updateScheduleUI();
+    };
+
+    window.toggleScheduleItem = async function(id, isDone) {
+      await updateDoc(firestoreDoc(db, "schedule", id), { done: !isDone });
     };
 
     window.deleteScheduleItem = async function(id) {
@@ -260,12 +271,10 @@
 
     function updateScheduleUI() {
       const scheduleDiv = document.getElementById("scheduleList");
+      if (!scheduleDiv) return;
       const currentDayString = window.daysOfWeek[window.currentDayIndex];
       
-      // On ne garde que les activités du jour séléctionné
       const dayEvents = allSchedule.filter(item => item.day === currentDayString);
-      
-      // On les trie par heure
       dayEvents.sort((a, b) => a.time.localeCompare(b.time));
 
       if(dayEvents.length === 0) {
@@ -279,11 +288,14 @@
       }
 
       scheduleDiv.innerHTML = dayEvents.map(item => `
-        <div class="schedule-card">
+        <div class="schedule-card ${item.done ? 'done' : ''}">
           <div class="schedule-time">${item.time}</div>
           <div class="schedule-content">
             <div class="schedule-header">
-              <strong>${item.activity}</strong>
+              <label class="schedule-label">
+                <input type="checkbox" class="schedule-checkbox" ${item.done ? 'checked' : ''} onchange="toggleScheduleItem('${item.id}', ${item.done})">
+                <span class="activity-title">${item.activity}</span>
+              </label>
               <button class="delete-btn-small" onclick="deleteScheduleItem('${item.id}')">❌</button>
             </div>
             ${item.link ? `<a href="${item.link}" target="_blank" class="schedule-link">Voir le lien 🔗</a>` : ''}
@@ -422,6 +434,8 @@
     .user-btn:active { background: var(--primary); color: white; }
 
     header { display: flex; justify-content: space-between; align-items: center; padding: 20px; font-size: 24px; font-weight: 800; color: var(--primary); }
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+    .version-badge { font-size: 11px; background: var(--accent); color: white; padding: 4px 8px; border-radius: 8px; font-weight: bold; }
     .logout-btn { font-size: 12px; background: var(--bg); color: var(--primary); padding: 5px 10px; border-radius: 10px; border: none; cursor: pointer; }
 
     /* CONTENUS ET CARTES */
@@ -458,12 +472,20 @@
     .cal-btn:active { background: rgba(255,255,255,0.5); transform: scale(0.9); }
     
     #scheduleList { padding: 15px; min-height: 120px; background: #FAFAFA; }
-    .schedule-card { display: flex; gap: 15px; padding: 15px; margin-bottom: 10px; align-items: center; background: white; border-radius: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+    .schedule-card { display: flex; gap: 15px; padding: 15px; margin-bottom: 10px; align-items: center; background: white; border-radius: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); transition: all 0.2s ease; }
     .schedule-card:last-child { margin-bottom: 0; }
-    .schedule-time { font-weight: 900; color: var(--primary); font-size: 18px; min-width: 55px; text-align: center; background: #FFF0F3; padding: 8px; border-radius: 10px; }
+    .schedule-time { font-weight: 900; color: var(--primary); font-size: 18px; min-width: 55px; text-align: center; background: #FFF0F3; padding: 8px; border-radius: 10px; transition: all 0.2s; }
     .schedule-content { flex: 1; }
     .schedule-header { display: flex; justify-content: space-between; align-items: center; font-size: 16px; }
+    .schedule-label { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; word-break: break-word; }
+    .schedule-checkbox { width: 22px; height: 22px; margin: 0; accent-color: var(--primary); cursor: pointer; }
     .schedule-link { display: inline-block; margin-top: 8px; font-size: 13px; color: white; background: var(--accent); padding: 4px 10px; border-radius: 8px; text-decoration: none; font-weight: bold; }
+
+    /* Styles pour quand l'activité est cochée (terminée) */
+    .schedule-card.done { opacity: 0.55; background: #F5F5F5; box-shadow: none; }
+    .schedule-card.done .activity-title { text-decoration: line-through; color: #888; }
+    .schedule-card.done .schedule-time { background: #EAEAEA; color: #888; }
+    .schedule-card.done .schedule-link { background: #CCC; }
 
     /* Idées / Bons plans */
     .idea-card { padding: 15px; }
@@ -546,7 +568,10 @@
 
   <header>
     <span id="welcomeMessage">Summer Trip 🌴</span>
-    <button class="logout-btn" onclick="logout()">Changer profil</button>
+    <div class="header-actions">
+      <span class="version-badge">✨ V3 Fait ✅</span>
+      <button class="logout-btn" onclick="logout()">Changer profil</button>
+    </div>
   </header>
 
   <div class="container">
@@ -601,7 +626,6 @@
 
       <h3 class="section-title">Programme au jour le jour 📅</h3>
       
-      <!-- LE NOUVEAU CALENDRIER -->
       <div class="calendar-container">
         <div class="calendar-nav">
           <button type="button" class="cal-btn" onclick="changeDay(-1)">❮</button>
@@ -609,11 +633,9 @@
           <button type="button" class="cal-btn" onclick="changeDay(1)">❯</button>
         </div>
         <div id="scheduleList">
-          <!-- Les activités apparaîtront ici -->
-        </div>
+          </div>
       </div>
 
-      <!-- FORMULAIRE POUR AJOUTER UNE ACTIVITÉ -->
       <div class="card" style="margin-top: 15px;">
         <h4 style="margin-top: 0; color: var(--primary);">Ajouter une activité</h4>
         <form id="scheduleForm" onsubmit="addScheduleItem(event)">
@@ -636,7 +658,6 @@
         </form>
       </div>
       
-      <!-- BOITE A IDÉES -->
       <h3 class="section-title">Boîte à Idées 💡</h3>
       <div class="card">
         <form id="ideaForm" onsubmit="addIdea(event)">
@@ -654,7 +675,6 @@
       </div>
       <div id="ideasList"></div>
 
-      <!-- COURSES -->
       <h3 class="section-title">Liste de courses 🛒</h3>
       <div class="card">
         <form id="shoppingForm" onsubmit="addShoppingItem(event)" class="shopping-form-group">
